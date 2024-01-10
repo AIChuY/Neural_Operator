@@ -1,0 +1,22 @@
+# Ignore data files
+datafiles/
+
+# Ignore checkpoints files
+checkpoints/
+
+# Ignore IDE and editor files
+.idea/
+.vscode/
+.ipynb_checkpoints/
+
+# Ignore Python compiled files
+__pycache__/
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+
+# Ignore package files
+*.zip
+*.tar.gz
+*.rar
