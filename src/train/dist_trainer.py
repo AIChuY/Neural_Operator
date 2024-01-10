@@ -1,36 +1,53 @@
 """Trainer for multiple GPU training."""
+from typing import List
+
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from .training_logger import TrainingLogger
 
+
 class Trainer(object):
+    """Trainer for multiple GPU training."""
+
     # TODO: refactor this class
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        model,
-        mse_loss,
-        l2_rel_loss,
-        optimizer,
-        scheduler,
-        train_loader,
-        valid_loader,
-        test_loader,
-        rank,
-        opt,
+        model: torch.nn.Module,
+        loss_functions: List[object],
+        optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler._LRScheduler,
+        train_loader: torch.utils.data.DataLoader,
+        valid_loader: torch.utils.data.DataLoader,
+        test_loader: torch.utils.data.DataLoader,
+        rank: int,
+        config: dict,
     ):
+        """Initialize the trainer.
+
+        Args:
+        ----
+            model (torch.nn.Module): The model to be trained.
+            loss_functions (List[object]): The loss functions.
+            optimizer (torch.optim.Optimizer): The optimizer.
+            scheduler (torch.optim.lr_scheduler._LRScheduler): The scheduler.
+            train_loader (torch.utils.data.DataLoader): The data loader for training.
+            valid_loader (torch.utils.data.DataLoader): The data loader for validation.
+            test_loader (torch.utils.data.DataLoader): The data loader for testing.
+            rank (int): The rank of the current process.
+            config (dict): The config dictionary.
+        """
         self.model = model.to(rank)
         self.model = DDP(self.model, device_ids=[rank])
-        self.mse_loss = mse_loss
-        self.l2_rel_loss = l2_rel_loss
+        self.loss_functions = loss_functions
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.train_loader = train_loader
         self.valid_loader = valid_loader
         self.test_loader = test_loader
         self.rank = rank
-        self.opt = opt
-        self.logger = TrainingLogger()
+        self.config = config
+        self.logger = TrainingLogger(config.log_file)
 
     def _train_epoch(self, epoch: int):
         self.model.train()
@@ -40,8 +57,8 @@ class Trainer(object):
         train_l2_loss_autoencoder_in = 0
         train_l2_loss_autoencoder_out = 0
         for x, y in self.train_loader:
-            x = x.to(self.rank)
-            y = y.to(self.rank)
+            x = x.to(self.rank)  # noqa: PLW2901
+            y = y.to(self.rank)  # noqa: PLW2901
             out, aec_in, aec_out = self.model(x, y)
             loss_l2_operator = self.l2_rel_loss(out, y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out))
             loss_l2_autoencoder_in = self.l2_rel_loss(
@@ -88,8 +105,8 @@ class Trainer(object):
         valid_l2_loss_autoencoder_out = 0
         with torch.no_grad():
             for x, y in self.valid_loader:
-                x = x.to(self.rank)
-                y = y.to(self.rank)
+                x = x.to(self.rank)  # noqa: PLW2901
+                y = y.to(self.rank)  # noqa: PLW2901
                 out, aec_in, aec_out = self.model(x, y)
                 loss_l2_operator = self.l2_rel_loss(
                     out,
@@ -130,12 +147,19 @@ class Trainer(object):
         pass
 
     def train(self, max_epochs: int):
+        """Train the model.
+
+        Args:
+        ----
+            max_epochs (int): The maximum number of epochs.
+        """
         for epoch in range(max_epochs):
             self._train_epoch(epoch)
             self._validate_epoch(epoch)
             self._save_checkpoint(epoch)
 
     def test(self):
+        """Test the model."""
         self.model.eval()
         test_mse_loss_operator = 0
         test_l2_loss_operator = 0
@@ -144,8 +168,8 @@ class Trainer(object):
         test_record = []
         with torch.no_grad():
             for x, y in self.test_loader:
-                x = x.to(self.rank)
-                y = y.to(self.rank)
+                x = x.to(self.rank)  # noqa: PLW2901
+                y = y.to(self.rank)  # noqa: PLW2901
                 out, aec_in, aec_out = self.model(x, y)
                 test_record.append(out)
                 loss_mse_operator = (

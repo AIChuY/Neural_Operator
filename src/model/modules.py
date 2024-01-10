@@ -1,17 +1,46 @@
 """The components of neural operator models."""
 import os
+from typing import List
+
 import torch
 from torch import nn
 
 
 class FNN(nn.Module):
-    def __init__(self, hidden_layer=[64, 64], dim_in=-1, dim_out=-1, activation=None):
+    """The fully connected neural network."""
+
+    def __init__(
+        self,
+        hidden_layer: List[int] = [64, 64],
+        dim_in: int = -1,
+        dim_out: int = -1,
+        activation: torch.nn.Module = None,
+    ):
+        """Initialize the fully connected neural network.
+
+        Args:
+        ----
+            hidden_layer (list, optional): The hidden layer sizes. Defaults to [64, 64].
+            dim_in (int, optional): The input dimension. Defaults to -1.
+            dim_out (int, optional): The output dimension. Defaults to -1.
+            activation (torch.nn.Module, optional): The activation function. Defaults to None.
+        """
         super().__init__()
         self.sigma = activation
         dim = [dim_in] + hidden_layer + [dim_out]
         self.layers = nn.ModuleList([nn.Linear(dim[i - 1], dim[i]) for i in range(1, len(dim))])
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Define the forward pass.
+
+        Args:
+        ----
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+        -------
+            torch.Tensor: The output tensor.
+        """
         for i in range(len(self.layers) - 1):
             x = self.sigma(self.layers[i](x))
         # linear activation at the last layer
@@ -19,13 +48,36 @@ class FNN(nn.Module):
 
 
 class NeuralBasis(nn.Module):
-    def __init__(self, dim_in=1, hidden=[4, 4, 4], n_base=4, activation=None):
+    """The neural basis."""
+
+    def __init__(
+        self, dim_in: int = 1, hidden: List[int] = [4, 4, 4], n_base: int = 4, activation: torch.nn.Module = None
+    ):
+        """Initialize the neural basis.
+
+        Args:
+        ----
+            dim_in (int, optional): The input dimension. Defaults to 1.
+            hidden (list, optional): The hidden layer sizes. Defaults to [4, 4, 4].
+            n_base (int, optional): The number of basis. Defaults to 4.
+            activation (torch.nn.Module, optional): The activation function. Defaults to None.
+        """
         super().__init__()
         self.sigma = activation
         dim = [dim_in] + hidden + [n_base]
         self.layers = nn.ModuleList([nn.Linear(dim[i - 1], dim[i]) for i in range(1, len(dim))])
 
-    def forward(self, t):
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """Define the forward pass.
+
+        Args:
+        ----
+            t (torch.Tensor): The input tensor.
+
+        Returns:
+        -------
+            torch.Tensor: The output tensor.
+        """
         for i in range(len(self.layers) - 1):
             t = self.sigma(self.layers[i](t))
         # linear activation at the last layer
@@ -33,14 +85,26 @@ class NeuralBasis(nn.Module):
 
 
 class Basic_Model(nn.Module):
+    """The basic model."""
+
     def __init__(self):
+        """Initialize the basic model."""
         super().__init__()
         pass
 
     def forward(self):
+        """Define the forward pass."""
         pass
 
-    def load_params_from_file(self, filename, optimizer=None, to_cpu=False):
+    def load_params_from_file(self, filename: str, optimizer: torch.optim.Optimizer = None, to_cpu: bool = False):
+        """Load parameters from file.
+
+        Args:
+        ----
+            filename (str): The file name.
+            optimizer (torch.optim.Optimizer, optional): The optimizer. Defaults to None.
+            to_cpu (bool, optional): Whether to load the parameters to CPU. Defaults to False.
+        """
         if not os.path.isfile(filename):
             raise FileNotFoundError
 
@@ -72,6 +136,17 @@ class Basic_Model(nn.Module):
         print("==> Done (loaded %d/%d)" % (len(update_model_state), len(self.state_dict())))
 
     def freeze_basis(self, lr=1e-4, weight_decay=0):
+        """Freeze the basis.
+
+        Args:
+        ----
+            lr (float, optional): The learning rate. Defaults to 1e-4.
+            weight_decay (int, optional): The weight decay. Defaults to 0.
+
+        Returns:
+        -------
+            torch.optim.Optimizer: The optimizer.
+        """
         total = 0
         freezed = 0
         for name, param in self.named_parameters():
@@ -88,7 +163,8 @@ class Basic_Model(nn.Module):
 
 
 def _inner_product(f1, f2, h):
-    """
+    """Compute the inner product of f1 and f2.
+
     f1 - (B, J) : B functions, observed at J time points,
     f2 - (B, J) : same as f1
     h  - (J-1,1): weights used in the trapezoidal rule
@@ -105,7 +181,18 @@ def _parralleled_inner_product(f1, f2, h):
 
 
 def trapezoidal_2d_parralleled(f, h):
-    assert isinstance(h, list) and len(h) == 2
+    """Compute the 2d trapezoidal rule for parralleled data.
+
+    Args:
+    ----
+        f (torch.Tensor): The input tensor.
+        h (list): The weights.
+
+    Returns:
+    -------
+        torch.Tensor: The output tensor.
+    """
+    assert isinstance(h, list) and len(h) == 2  # noqa: PLR2004 # TODO: fix this after figuring out the meaning
     _, _, l1, l2 = f.size()
     # l1, l2 = f.shape[2], f.shape[3]
     c = torch.ones((l1, l2), device=f.device)
@@ -121,7 +208,18 @@ def _parralleled_inner_product_2d(f1, f2, h):
 
 
 def trapezoidal_2d(f, h):
-    assert isinstance(h, list) and len(h) == 2
+    """Compute the 2d trapezoidal rule.
+
+    Args:
+    ----
+        f (torch.Tensor): The input tensor.
+        h (list): The weights.
+
+    Returns:
+    -------
+        torch.Tensor: The output tensor.
+    """
+    assert isinstance(h, list) and len(h) == 2  # noqa: PLR2004 # TODO: fix this after figuring out the meaning
     _, l1, l2 = f.size()
     # l1, l2 = f.shape[1], f.shape[2]
     c = torch.ones((l1, l2), device=f.device)

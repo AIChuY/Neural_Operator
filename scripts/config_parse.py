@@ -1,5 +1,6 @@
 """Script to parse config file."""
 
+
 def parse_config(config_file: str) -> dict:
     """Parse config file.
 

@@ -6,7 +6,7 @@ from typing import List
 class TrainingLogger:
     """Logger for training process."""
 
-    def __init__(self, log_file: str="training.log"):
+    def __init__(self, log_file: str = "training.log"):
         """Initialize the logger.
 
         Args:

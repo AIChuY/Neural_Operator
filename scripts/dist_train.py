@@ -34,6 +34,14 @@ def cleanup():
 
 
 def main(rank: int, world_size: int, config_file: str):
+    """Excute distributed training.
+
+    Args:
+    ----
+        rank (int): The rank of the current process.
+        world_size (int): The total number of processes.
+        config_file (str): The path to the config file.
+    """
     config = parse_config(config_file)
     set_up_process(rank, world_size)
 
@@ -44,8 +52,11 @@ def main(rank: int, world_size: int, config_file: str):
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=250, gamma=0.9)
 
+    loss_functions = config.loss_functions
+
     trainer = Trainer(
         model,
+        loss_functions,
         optimizer,
         scheduler,
         train_loader,

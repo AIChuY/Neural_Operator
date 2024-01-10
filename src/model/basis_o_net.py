@@ -2,11 +2,14 @@
 import numpy as np
 import torch
 
-from .modules import Basic_Model, FNN, NeuralBasis, _inner_product_2d, _parralleled_inner_product_2d
+from .modules import FNN, Basic_Model, NeuralBasis, _inner_product_2d, _parralleled_inner_product_2d
 
 
 class BasisONet(Basic_Model):
-    def __init__(
+    """Basis operator network."""
+
+    # Just a placeholder for testing commit
+    def __init__(  # noqa: PLR0913
         self,
         n_base_in=9,
         base_in_hidden=[64, 64, 64],
@@ -18,6 +21,20 @@ class BasisONet(Basic_Model):
         device=None,
         activation=None,
     ):
+        """Initialize the basis operator network.
+
+        Args:
+        ----
+            n_base_in (int, optional): The number of basis nodes in the input space. Defaults to 9.
+            base_in_hidden (list, optional): The hidden layer sizes for the input basis. Defaults to [64, 64, 64].
+            middle_hidden (list, optional): The hidden layer sizes for the middle layer. Defaults to [64, 64, 64].
+            n_base_out (int, optional): The number of basis nodes in the output space. Defaults to 9.
+            base_out_hidden (list, optional): The hidden layer sizes for the output basis. Defaults to [64, 64, 64].
+            grid_in (np.ndarray, optional): The input grid. Defaults to None.
+            grid_out (np.ndarray, optional): The output grid. Defaults to None.
+            device (torch.device, optional): The device to use. Defaults to None.
+            activation (torch.nn.Module, optional): The activation function. Defaults to None.
+        """
         super().__init__()
         self.n_base_in = n_base_in
         self.n_base_out = n_base_out
@@ -32,6 +49,17 @@ class BasisONet(Basic_Model):
         self.BL_out = NeuralBasis(2, hidden=base_out_hidden, n_base=n_base_out, activation=activation)
 
     def forward(self, x, y):
+        """Define the forward pass.
+
+        Args:
+        ----
+            x (torch.Tensor): The input tensor.
+            y (torch.Tensor): The output tensor.
+
+        Returns:
+        -------
+            torch.Tensor: The output tensor.
+        """
         B_in, J1_in, J2_in = x.size()
         B_out, J1_out, J2_out = y.size()
         T_in, T_out = self.t_in, self.t_out
@@ -56,6 +84,16 @@ class BasisONet(Basic_Model):
         return out, autoencoder_in, autoencoder_out
 
     def aec_in_forward(self, x):
+        """Define the forward pass for the input autoencoder.
+
+        Args:
+        ----
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+        -------
+            torch.Tensor: The output tensor.
+        """
         B, J1, J2 = x.size()
         # evaluate the current basis nodes at time grid
         self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
@@ -69,6 +107,16 @@ class BasisONet(Basic_Model):
         return autoencoder
 
     def aec_out_forward(self, y):
+        """Define the forward pass for the output autoencoder.
+
+        Args:
+        ----
+            y (torch.Tensor): The input tensor.
+
+        Returns:
+        -------
+            torch.Tensor: The output tensor.
+        """
         B, J1, J2 = y.size()
         # evaluate the current basis nodes at time grid
         self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
@@ -82,6 +130,18 @@ class BasisONet(Basic_Model):
         return autoencoder
 
     def check_orthogonality_in(self, J1, J2, path=None):
+        """Check the orthogonality of the input basis.
+
+        Args:
+        ----
+            J1 (int): The number of grids in the first dimension.
+            J2 (int): The number of grids in the second dimension.
+            path (str, optional): The path to save the orthogonality matrix. Defaults to None.
+
+        Returns:
+        -------
+            np.ndarray: The orthogonality matrix.
+        """
         self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
         self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base, J1*J2)
         orth_matrix = torch.ones((self.bases_in.shape[0], self.bases_in.shape[0])).to(self.device)
@@ -99,6 +159,18 @@ class BasisONet(Basic_Model):
             return orth_matrix
 
     def check_orthogonality_out(self, J1, J2, path=None):
+        """Check the orthogonality of the output basis.
+
+        Args:
+        ----
+            J1 (int): The number of grids in the first dimension.
+            J2 (int): The number of grids in the second dimension.
+            path (str, optional): The path to save the orthogonality matrix. Defaults to None.
+
+        Returns:
+        -------
+            np.ndarray: The orthogonality matrix.
+        """
         self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
         self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base, J1*J2)
         orth_matrix = torch.ones((self.bases_out.shape[0], self.bases_out.shape[0])).to(self.device)
