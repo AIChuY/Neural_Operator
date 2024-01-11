@@ -5,12 +5,11 @@ import time
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from config_parse import parse_config
 
 from src.dataset.dist_dataloader import prepare_dataloader
 from src.model.basis_o_net import BasisONet
 from src.train.dist_trainer import Trainer
-
-from .config_parse import parse_config
 
 
 def set_up_process(rank: int, world_size: int, backend: str = "nccl"):

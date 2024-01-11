@@ -8,6 +8,7 @@ checkpoints/
 .idea/
 .vscode/
 .ipynb_checkpoints/
+.mypy_cache/
 
 # Ignore Python compiled files
 __pycache__/
