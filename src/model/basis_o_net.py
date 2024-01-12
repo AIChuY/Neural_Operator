@@ -39,14 +39,36 @@ class BasisONet(Basic_Model):
         self.n_base_in = n_base_in
         self.n_base_out = n_base_out
         self.device = device
-        self.t_in = torch.tensor(grid_in).to(device).float().reshape(-1, 2)
-        self.t_out = torch.tensor(grid_out).to(device).float().reshape(-1, 2)
-        self.h_in = [grid_in[0, 1, 0] - grid_in[0, 0, 0], grid_in[1, 0, 1] - grid_in[0, 0, 1]]
-        self.h_out = [grid_out[0, 1, 0] - grid_out[0, 0, 0], grid_out[1, 0, 1] - grid_out[0, 0, 1]]
-        assert self.h_in[0] > 0 and self.h_in[1] > 0 and self.h_out[0] > 0 and self.h_out[1] > 0
-        self.BL_in = NeuralBasis(2, hidden=base_in_hidden, n_base=n_base_in, activation=activation)
+
+#config['model']['dim_t_in'],config['model']['dim_t_out']
+        dim_t_in=config['model']['dim_t_in']
+        dim_t_out=config['model']['dim_t_out']
+
+        self.t_in = torch.tensor(grid_in).to(device).float().reshape(-1, dim_t_in)
+        self.t_out = torch.tensor(grid_out).to(device).float().reshape(-1, dim_t_out)
+
+        self.BL_in = NeuralBasis(dim_t_in, hidden=base_in_hidden, n_base=n_base_in, activation=activation)
         self.Middle = FNN(hidden_layer=middle_hidden, dim_in=n_base_in, dim_out=n_base_out, activation=activation)
-        self.BL_out = NeuralBasis(2, hidden=base_out_hidden, n_base=n_base_out, activation=activation)
+        self.BL_out = NeuralBasis(dim_t_out, hidden=base_out_hidden, n_base=n_base_out, activation=activation)
+#below are personalize item, rely on model.
+        if config['model']['name']=='darcy_flow':
+            self.h_in = [grid_in[0, 1, 0] - grid_in[0, 0, 0], grid_in[1, 0, 1] - grid_in[0, 0, 1]]
+            self.h_out = [grid_out[0, 1, 0] - grid_out[0, 0, 0], grid_out[1, 0, 1] - grid_out[0, 0, 1]]
+            assert self.h_in[0] > 0 and self.h_in[1] > 0 and self.h_out[0] > 0 and self.h_out[1] > 0
+        elif config['model']['name']=='kdv_burgers':
+            self.h_in = torch.tensor(grid_in[1:] - grid_in[:-1]).to(device).float()
+            self.h_out = [grid_out[0,1,0] - grid_out[0,0,0], grid_out[1,0,1] - grid_out[0,0,1]]
+        elif config['model']['name']=='navier_stokes':
+            self.h_in = torch.tensor(grid_in[1:] - grid_in[:-1]).to(device).float()
+        elif config['model']['name']=='possion':
+            self.kde_in = KernelDensity(kernel='gaussian', bandwidth=0.02).fit(grid_in)
+            self.density_in = np.exp(self.kde_in.score_samples(grid_in))
+            self.density_in = torch.tensor(self.density_in).to(device).float().reshape(-1, 1)
+            self.kde_out = KernelDensity(kernel='gaussian', bandwidth=0.02).fit(grid_out)
+            self.density_out = np.exp(self.kde_out.score_samples(grid_out))
+            self.density_out = torch.tensor(self.density_out).to(device).float().reshape(-1, 1)
+
+        
 
     def forward(self, x, y):
         """Define the forward pass.
@@ -82,52 +104,6 @@ class BasisONet(Basic_Model):
         )  # (B_out, n_base_out)
         autoencoder_out = torch.mm(score_out_temp, self.bases_out)
         return out, autoencoder_in, autoencoder_out
-
-    def aec_in_forward(self, x):
-        """Define the forward pass for the input autoencoder.
-
-        Args:
-        ----
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-        -------
-            torch.Tensor: The output tensor.
-        """
-        B, J1, J2 = x.size()
-        # evaluate the current basis nodes at time grid
-        self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
-        self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base, J)
-        score_in = _parralleled_inner_product_2d(
-            x.unsqueeze(1).repeat((1, self.n_base_in, 1, 1)),
-            self.bases_in.unsqueeze(0).repeat((B, 1, 1)).reshape(B, self.n_base_in, J1, J2),
-            self.h_in,
-        )
-        autoencoder = torch.mm(score_in, self.bases_in)  # (B, n_grid)
-        return autoencoder
-
-    def aec_out_forward(self, y):
-        """Define the forward pass for the output autoencoder.
-
-        Args:
-        ----
-            y (torch.Tensor): The input tensor.
-
-        Returns:
-        -------
-            torch.Tensor: The output tensor.
-        """
-        B, J1, J2 = y.size()
-        # evaluate the current basis nodes at time grid
-        self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
-        self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base, J1*J2)
-        score_out = _parralleled_inner_product_2d(
-            y.unsqueeze(1).repeat((1, self.n_base_out, 1, 1)),
-            self.bases_out.unsqueeze(0).repeat((B, 1, 1)).reshape(B, self.n_base_out, J1, J2),
-            self.h_out,
-        )
-        autoencoder = torch.mm(score_out, self.bases_out)  # (B, n_grid)
-        return autoencoder
 
     def check_orthogonality_in(self, J1, J2, path=None):
         """Check the orthogonality of the input basis.
