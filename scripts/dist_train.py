@@ -20,6 +20,7 @@ def set_up_process(rank: int, world_size: int, backend: str = "nccl"):
         rank (int): The rank of the current process.
         world_size (int): The total number of processes.
         backend (str): The backend used for distributed training.
+
     """
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12345"
@@ -40,22 +41,23 @@ def main(rank: int, world_size: int, config_file: str):
         rank (int): The rank of the current process.
         world_size (int): The total number of processes.
         config_file (str): The path to the config file.
+
     """
+    # Parse the config file
     config = parse_config(config_file)
     set_up_process(rank, world_size)
 
+    # Prepare the dataloaders
     train_loader, valid_loader, test_loader = prepare_dataloader(config)
 
+    # Create the model, optimizer, scheduler, and loss functions
     model = BasisONet(config)
-
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=config.learning_rate)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=config["train"]["learning_rate"])
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=250, gamma=0.9)
 
-    loss_functions = config.loss_functions
-
+    # Create the trainer
     trainer = Trainer(
         model,
-        loss_functions,
         optimizer,
         scheduler,
         train_loader,
@@ -65,7 +67,7 @@ def main(rank: int, world_size: int, config_file: str):
         config,
     )
 
-    trainer.train(config.train_epoch)
+    trainer.train(config["train"]["epochs"])
 
     if rank == 0:
         trainer.test()

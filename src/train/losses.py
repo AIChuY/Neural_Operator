@@ -13,6 +13,7 @@ class LpLoss(object):
             p (int, optional): The p in Lp loss. Defaults to 2.
             size_average (bool, optional): Whether to average the loss. Defaults to True.
             reduction (bool, optional): Whether to reduce the loss. Defaults to True.
+
         """
         super(LpLoss, self).__init__()
         self.p = p
@@ -30,6 +31,7 @@ class LpLoss(object):
         Returns:
         -------
             torch.Tensor: The relative Lp loss.
+
         """
         num_examples = x.size()[0]
 

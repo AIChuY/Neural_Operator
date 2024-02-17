@@ -14,9 +14,8 @@ class Trainer(object):
     def __init__(  # noqa: PLR0913
         self,
         model: torch.nn.Module,
-        loss_functions: List[object],
         optimizer: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler._LRScheduler,
+        scheduler: torch.optim.lr_scheduler.LRScheduler,
         train_loader: torch.utils.data.DataLoader,
         valid_loader: torch.utils.data.DataLoader,
         test_loader: torch.utils.data.DataLoader,
@@ -28,7 +27,6 @@ class Trainer(object):
         Args:
         ----
             model (torch.nn.Module): The model to be trained.
-            loss_functions (List[object]): The loss functions.
             optimizer (torch.optim.Optimizer): The optimizer.
             scheduler (torch.optim.lr_scheduler._LRScheduler): The scheduler.
             train_loader (torch.utils.data.DataLoader): The data loader for training.
@@ -36,10 +34,11 @@ class Trainer(object):
             test_loader (torch.utils.data.DataLoader): The data loader for testing.
             rank (int): The rank of the current process.
             config (dict): The config dictionary.
+
         """
         self.model = model.to(rank)
         self.model = DDP(self.model, device_ids=[rank])
-        self.loss_functions = loss_functions
+        self.loss_function = config["train"]["loss_function"]
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.train_loader = train_loader
@@ -47,11 +46,11 @@ class Trainer(object):
         self.test_loader = test_loader
         self.rank = rank
         self.config = config
-        self.logger = TrainingLogger(config.log_file)
+        self.logger = TrainingLogger(config["train"]["log_file"])
 
     def _train_epoch(self, epoch: int):
         self.model.train()
-        self.train_loader.sampler.set_epoch(epoch)
+        self.train_loader.sampler.set_epoch(epoch)  # type: ignore
         train_loss_total = 0
         train_l2_loss_operator = 0
         train_l2_loss_autoencoder_in = 0
@@ -60,18 +59,35 @@ class Trainer(object):
             x = x.to(self.rank)  # noqa: PLW2901
             y = y.to(self.rank)  # noqa: PLW2901
             out, aec_in, aec_out = self.model(x, y)
-            loss_l2_operator = self.l2_rel_loss(out, y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out))
-            loss_l2_autoencoder_in = self.l2_rel_loss(
-                aec_in, x.reshape(-1, self.opt.J1_in * self.opt.J2_in * self.opt.J3_in)
+            loss_l2_operator = self.loss_function(
+                out,
+                y.reshape(
+                    -1,
+                    self.config["dataset"]["J1_out"]
+                    * self.config["dataset"]["J2_out"]
+                    * self.config["dataset"]["J3_out"],
+                ),
             )
-            loss_l2_autoencoder_out = self.l2_rel_loss(
+            loss_l2_autoencoder_in = self.loss_function(
+                aec_in,
+                x.reshape(
+                    -1,
+                    self.config["dataset"]["J1_in"] * self.config["dataset"]["J2_in"] * self.config["dataset"]["J3_in"],
+                ),
+            )
+            loss_l2_autoencoder_out = self.loss_function(
                 aec_out,
-                y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                y.reshape(
+                    -1,
+                    self.config["dataset"]["J1_out"]
+                    * self.config["dataset"]["J2_out"]
+                    * self.config["dataset"]["J3_out"],
+                ),
             )
             loss_total = (
                 loss_l2_operator
-                + self.opt.lambda_in * loss_l2_autoencoder_in
-                + self.opt.lambda_out * loss_l2_autoencoder_out
+                + self.config["train"]["lambda_in"] * loss_l2_autoencoder_in
+                + self.config["train"]["lambda_out"] * loss_l2_autoencoder_out
             )
             self.optimizer.zero_grad()
             loss_total.backward()
@@ -83,18 +99,18 @@ class Trainer(object):
             train_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
         self.scheduler.step()
 
-        train_loss_total /= self.opt.ntrain
-        train_l2_loss_operator /= self.opt.ntrain
-        train_l2_loss_autoencoder_in /= self.opt.ntrain
-        train_l2_loss_autoencoder_out /= self.opt.ntrain
-        self.logger.debug(
-            "ep:{:.0f} | train_l2_total:{:.6f} | train_l2_op:{:.6f} | train_l2_aec_in:{:6f} | train_l2_aec_out:{:6f}".format(
-                epoch,
+        train_loss_total /= self.config["dataset"]["ntrain"]
+        train_l2_loss_operator /= self.config["dataset"]["ntrain"]
+        train_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
+        train_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
+        self.logger.log_train(
+            epoch,
+            [
                 train_loss_total,
                 train_l2_loss_operator,
                 train_l2_loss_autoencoder_in,
                 train_l2_loss_autoencoder_out,
-            )
+            ],
         )
 
     def _validate_epoch(self, epoch: int):
@@ -108,22 +124,37 @@ class Trainer(object):
                 x = x.to(self.rank)  # noqa: PLW2901
                 y = y.to(self.rank)  # noqa: PLW2901
                 out, aec_in, aec_out = self.model(x, y)
-                loss_l2_operator = self.l2_rel_loss(
+                loss_l2_operator = self.loss_function(
                     out,
-                    y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                    y.reshape(
+                        -1,
+                        self.config["dataset"]["J1_out"]
+                        * self.config["dataset"]["J2_out"]
+                        * self.config["dataset"]["J3_out"],
+                    ),
                 )
-                loss_l2_autoencoder_in = self.l2_rel_loss(
+                loss_l2_autoencoder_in = self.loss_function(
                     aec_in,
-                    x.reshape(-1, self.opt.J1_in * self.opt.J2_in * self.opt.J3_in),
+                    x.reshape(
+                        -1,
+                        self.config["dataset"]["J1_in"]
+                        * self.config["dataset"]["J2_in"]
+                        * self.config["dataset"]["J3_in"],
+                    ),
                 )
-                loss_l2_autoencoder_out = self.l2_rel_loss(
+                loss_l2_autoencoder_out = self.loss_function(
                     aec_out,
-                    y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                    y.reshape(
+                        -1,
+                        self.config["dataset"]["J1_out"]
+                        * self.config["dataset"]["J2_out"]
+                        * self.config["dataset"]["J3_out"],
+                    ),
                 )
                 loss_total = (
                     loss_l2_operator
-                    + self.opt.lambda_in * loss_l2_autoencoder_in
-                    + self.opt.lambda_out * loss_l2_autoencoder_out
+                    + self.config["train"]["lambda_in"] * loss_l2_autoencoder_in
+                    + self.config["train"]["lambda_out"] * loss_l2_autoencoder_out
                 )
 
                 valid_loss_total += loss_total.item()
@@ -131,16 +162,13 @@ class Trainer(object):
                 valid_l2_loss_autoencoder_in += loss_l2_autoencoder_in.item()
                 valid_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
 
-        valid_loss_total /= self.opt.nvalid
-        valid_l2_loss_operator /= self.opt.nvalid
-        valid_l2_loss_autoencoder_in /= self.opt.nvalid
-        valid_l2_loss_autoencoder_out /= self.opt.nvalid
-        self.logger.debug(
-            f"ep:{epoch} | "
-            f"valid_l2_total:{valid_loss_total:.6f} | "
-            f"valid_l2_op:{valid_l2_loss_operator:.6f} | "
-            f"valid_l2_aec_in:{valid_l2_loss_autoencoder_in:.6f} | "
-            f"valid_l2_aec_out:{valid_l2_loss_autoencoder_out:.6f}"
+        valid_loss_total /= self.config["dataset"]["ntrain"]
+        valid_l2_loss_operator /= self.config["dataset"]["ntrain"]
+        valid_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
+        valid_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
+        self.logger.log_val(
+            epoch,
+            [valid_loss_total, valid_l2_loss_operator, valid_l2_loss_autoencoder_in, valid_l2_loss_autoencoder_out],
         )
 
     def _save_checkpoint(self, epoch: int):
@@ -152,6 +180,7 @@ class Trainer(object):
         Args:
         ----
             max_epochs (int): The maximum number of epochs.
+
         """
         for epoch in range(max_epochs):
             self._train_epoch(epoch)
@@ -175,21 +204,41 @@ class Trainer(object):
                 loss_mse_operator = (
                     self.mse_loss(
                         out,
-                        y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                        y.reshape(
+                            -1,
+                            self.config["dataset"]["J1_out"]
+                            * self.config["dataset"]["J2_out"]
+                            * self.config["dataset"]["J3_out"],
+                        ),
                     )
                     * x.shape[0]
                 )
                 loss_l2_operator = self.l2_rel_loss(
                     out,
-                    y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                    y.reshape(
+                        -1,
+                        self.config["dataset"]["J1_out"]
+                        * self.config["dataset"]["J2_out"]
+                        * self.config["dataset"]["J3_out"],
+                    ),
                 )
                 loss_l2_autoencoder_in = self.l2_rel_loss(
                     aec_in,
-                    x.reshape(-1, self.opt.J1_in * self.opt.J2_in * self.opt.J3_in),
+                    x.reshape(
+                        -1,
+                        self.config["dataset"]["J1_in"]
+                        * self.config["dataset"]["J2_in"]
+                        * self.config["dataset"]["J3_in"],
+                    ),
                 )
                 loss_l2_autoencoder_out = self.l2_rel_loss(
                     aec_out,
-                    y.reshape(-1, self.opt.J1_out * self.opt.J2_out * self.opt.J3_out),
+                    y.reshape(
+                        -1,
+                        self.config["dataset"]["J1_out"]
+                        * self.config["dataset"]["J2_out"]
+                        * self.config["dataset"]["J3_out"],
+                    ),
                 )
 
                 test_l2_loss_operator += loss_l2_operator.item()
@@ -197,10 +246,10 @@ class Trainer(object):
                 test_l2_loss_autoencoder_in += loss_l2_autoencoder_in.item()
                 test_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
 
-        test_mse_loss_operator /= self.opt.ntest
-        test_l2_loss_operator /= self.opt.ntest
-        test_l2_loss_autoencoder_in /= self.opt.ntest
-        test_l2_loss_autoencoder_out /= self.opt.ntest
+        test_mse_loss_operator /= self.config["dataset"]["ntrain"]
+        test_l2_loss_operator /= self.config["dataset"]["ntrain"]
+        test_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
+        test_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
 
         self.logger.debug(
             "test_mse_op:{:.8f}\ttest_l2_op:{:.6f}\ttest_l2_aec_in:{:.6f}\ttest_l2_aec_out:{:.6f}".format(

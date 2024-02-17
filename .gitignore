@@ -21,3 +21,6 @@ __pycache__/
 *.zip
 *.tar.gz
 *.rar
+
+# Ignore test files
+*_test.py

@@ -34,6 +34,7 @@ class BasisONet(Basic_Model):
             grid_out (np.ndarray, optional): The output grid. Defaults to None.
             device (torch.device, optional): The device to use. Defaults to None.
             activation (torch.nn.Module, optional): The activation function. Defaults to None.
+
         """
         super().__init__()
         self.n_base_in = n_base_in
@@ -59,6 +60,7 @@ class BasisONet(Basic_Model):
         Returns:
         -------
             torch.Tensor: The output tensor.
+
         """
         B_in, J1_in, J2_in = x.size()
         B_out, J1_out, J2_out = y.size()
@@ -93,6 +95,7 @@ class BasisONet(Basic_Model):
         Returns:
         -------
             torch.Tensor: The output tensor.
+
         """
         B, J1, J2 = x.size()
         # evaluate the current basis nodes at time grid
@@ -116,6 +119,7 @@ class BasisONet(Basic_Model):
         Returns:
         -------
             torch.Tensor: The output tensor.
+
         """
         B, J1, J2 = y.size()
         # evaluate the current basis nodes at time grid
@@ -141,6 +145,7 @@ class BasisONet(Basic_Model):
         Returns:
         -------
             np.ndarray: The orthogonality matrix.
+
         """
         self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
         self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base, J1*J2)
@@ -170,6 +175,7 @@ class BasisONet(Basic_Model):
         Returns:
         -------
             np.ndarray: The orthogonality matrix.
+
         """
         self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
         self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base, J1*J2)

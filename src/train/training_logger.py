@@ -12,6 +12,7 @@ class TrainingLogger:
         Args:
         ----
             log_file (string, optional): The file to log to.
+
         """
         super().__init__()
 
@@ -43,6 +44,7 @@ class TrainingLogger:
             epoch (int): The current epoch.
             losses (List[float]): The training L2 losses in the order of total loss, operator loss, encoder loss
                 and decoder loss.
+
         """
         self.logger.debug(
             f"ep:{epoch} | "
@@ -60,6 +62,7 @@ class TrainingLogger:
             epoch (int): The current epoch.
             losses (List[float]): The validation L2 losses in the order of total loss, operator loss, encoder loss
                 and decoder loss.
+
         """
         self.logger.debug(
             f"ep:{epoch} | "
@@ -76,6 +79,7 @@ class TrainingLogger:
         ----
             losses (List[float]): The test L2 losses in the order of total loss, operator loss, encoder loss
                 and decoder loss.
+
         """
         self.logger.debug(
             f"test_l2_total:{losses[0]:.6f} | "
