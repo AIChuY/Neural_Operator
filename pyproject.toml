@@ -74,3 +74,6 @@ docstring-code-format = false
 # enabled.
 docstring-code-line-length = "dynamic"
 
+# Set mypy to ignore errors in the log folder
+[tool.mypy]
+exclude = ['log']

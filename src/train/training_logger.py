@@ -26,7 +26,7 @@ class TrainingLogger:
         self.stream_handler = logging.StreamHandler()
 
         # Create a formatter
-        self.formatter = logging.Formatter("%(asctime)s - %(message)s")
+        self.formatter = logging.Formatter("%(asctime)s - %(message)s", "%Y-%m-%d %H:%M:%S")
 
         # Set the formatter for both handlers
         self.file_handler.setFormatter(self.formatter)
@@ -87,3 +87,13 @@ class TrainingLogger:
             f"test_l2_aec_in:{losses[2]:.6f} | "
             f"test_l2_aec_out:{losses[3]:.6f}"
         )
+
+    def log_improvement(self, epoch: int) -> None:
+        """Log that the model has improved.
+
+        Args:
+        ----
+            epoch (int): The current epoch.
+
+        """
+        self.logger.debug(f"Model improved at epoch {epoch}")

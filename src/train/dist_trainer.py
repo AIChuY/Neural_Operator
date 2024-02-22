@@ -1,7 +1,6 @@
 """Trainer for multiple GPU training."""
-from typing import List
-
 import torch
+from torch.distributed import ReduceOp, all_reduce
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from .training_logger import TrainingLogger
@@ -38,7 +37,7 @@ class Trainer(object):
         """
         self.model = model.to(rank)
         self.model = DDP(self.model, device_ids=[rank])
-        self.loss_function = config["train"]["loss_function"]
+        self.loss_function = config["loss_function"]
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.train_loader = train_loader
@@ -46,7 +45,9 @@ class Trainer(object):
         self.test_loader = test_loader
         self.rank = rank
         self.config = config
-        self.logger = TrainingLogger(config["train"]["log_file"])
+        self.valid_loss = float("inf")
+        self.save_flag = False
+        self.logger = TrainingLogger(config["log_dir"] + "train.log") if rank == 0 else None
 
     def _train_epoch(self, epoch: int):
         self.model.train()
@@ -63,55 +64,57 @@ class Trainer(object):
                 out,
                 y.reshape(
                     -1,
-                    self.config["dataset"]["J1_out"]
-                    * self.config["dataset"]["J2_out"]
-                    * self.config["dataset"]["J3_out"],
+                    self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                 ),
             )
             loss_l2_autoencoder_in = self.loss_function(
                 aec_in,
                 x.reshape(
                     -1,
-                    self.config["dataset"]["J1_in"] * self.config["dataset"]["J2_in"] * self.config["dataset"]["J3_in"],
+                    self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
                 ),
             )
             loss_l2_autoencoder_out = self.loss_function(
                 aec_out,
                 y.reshape(
                     -1,
-                    self.config["dataset"]["J1_out"]
-                    * self.config["dataset"]["J2_out"]
-                    * self.config["dataset"]["J3_out"],
+                    self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                 ),
             )
             loss_total = (
                 loss_l2_operator
-                + self.config["train"]["lambda_in"] * loss_l2_autoencoder_in
-                + self.config["train"]["lambda_out"] * loss_l2_autoencoder_out
+                + self.config["lambda_in"] * loss_l2_autoencoder_in
+                + self.config["lambda_out"] * loss_l2_autoencoder_out
             )
             self.optimizer.zero_grad()
             loss_total.backward()
             self.optimizer.step()
 
+            all_reduce(loss_total, op=ReduceOp.SUM)
+            all_reduce(loss_l2_operator, op=ReduceOp.SUM)
+            all_reduce(loss_l2_autoencoder_in, op=ReduceOp.SUM)
+            all_reduce(loss_l2_autoencoder_out, op=ReduceOp.SUM)
             train_loss_total += loss_total.item()
             train_l2_loss_operator += loss_l2_operator.item()
             train_l2_loss_autoencoder_in += loss_l2_autoencoder_in.item()
             train_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
         self.scheduler.step()
 
-        train_loss_total /= self.config["dataset"]["ntrain"]
-        train_l2_loss_operator /= self.config["dataset"]["ntrain"]
-        train_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
-        train_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
-        self.logger.log_train(
-            epoch,
-            [
-                train_loss_total,
-                train_l2_loss_operator,
-                train_l2_loss_autoencoder_in,
-                train_l2_loss_autoencoder_out,
-            ],
-        )
+        train_loss_total /= self.config["ntrain"]
+        train_l2_loss_operator /= self.config["ntrain"]
+        train_l2_loss_autoencoder_in /= self.config["ntrain"]
+        train_l2_loss_autoencoder_out /= self.config["ntrain"]
+
+        if self.logger is not None:
+            self.logger.log_train(
+                epoch,
+                [
+                    train_loss_total,
+                    train_l2_loss_operator,
+                    train_l2_loss_autoencoder_in,
+                    train_l2_loss_autoencoder_out,
+                ],
+            )
 
     def _validate_epoch(self, epoch: int):
         self.model.eval()
@@ -128,51 +131,65 @@ class Trainer(object):
                     out,
                     y.reshape(
                         -1,
-                        self.config["dataset"]["J1_out"]
-                        * self.config["dataset"]["J2_out"]
-                        * self.config["dataset"]["J3_out"],
+                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                     ),
                 )
                 loss_l2_autoencoder_in = self.loss_function(
                     aec_in,
                     x.reshape(
                         -1,
-                        self.config["dataset"]["J1_in"]
-                        * self.config["dataset"]["J2_in"]
-                        * self.config["dataset"]["J3_in"],
+                        self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
                     ),
                 )
                 loss_l2_autoencoder_out = self.loss_function(
                     aec_out,
                     y.reshape(
                         -1,
-                        self.config["dataset"]["J1_out"]
-                        * self.config["dataset"]["J2_out"]
-                        * self.config["dataset"]["J3_out"],
+                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                     ),
                 )
                 loss_total = (
                     loss_l2_operator
-                    + self.config["train"]["lambda_in"] * loss_l2_autoencoder_in
-                    + self.config["train"]["lambda_out"] * loss_l2_autoencoder_out
+                    + self.config["lambda_in"] * loss_l2_autoencoder_in
+                    + self.config["lambda_out"] * loss_l2_autoencoder_out
                 )
 
+                all_reduce(loss_total, op=ReduceOp.SUM)
+                all_reduce(loss_l2_operator, op=ReduceOp.SUM)
+                all_reduce(loss_l2_autoencoder_in, op=ReduceOp.SUM)
+                all_reduce(loss_l2_autoencoder_out, op=ReduceOp.SUM)
                 valid_loss_total += loss_total.item()
                 valid_l2_loss_operator += loss_l2_operator.item()
                 valid_l2_loss_autoencoder_in += loss_l2_autoencoder_in.item()
                 valid_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
 
-        valid_loss_total /= self.config["dataset"]["ntrain"]
-        valid_l2_loss_operator /= self.config["dataset"]["ntrain"]
-        valid_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
-        valid_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
-        self.logger.log_val(
-            epoch,
-            [valid_loss_total, valid_l2_loss_operator, valid_l2_loss_autoencoder_in, valid_l2_loss_autoencoder_out],
-        )
+        valid_loss_total /= self.config["ntrain"]
+        valid_l2_loss_operator /= self.config["ntrain"]
+        valid_l2_loss_autoencoder_in /= self.config["ntrain"]
+        valid_l2_loss_autoencoder_out /= self.config["ntrain"]
+        if self.logger is not None:
+            self.logger.log_val(
+                epoch,
+                [valid_loss_total, valid_l2_loss_operator, valid_l2_loss_autoencoder_in, valid_l2_loss_autoencoder_out],
+            )
+            if valid_l2_loss_operator < self.valid_loss:
+                self.valid_loss = valid_l2_loss_operator
+                self.save_flag = True
 
     def _save_checkpoint(self, epoch: int):
-        pass
+        if self.save_flag and self.logger is not None:
+            self.save_flag = False
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": self.model.module.state_dict(),  # type: ignore
+                    "optimizer_state_dict": self.optimizer.state_dict(),
+                    "scheduler_state_dict": self.scheduler.state_dict(),
+                    "valid_loss": self.valid_loss,
+                },
+                self.config["log_dir"] + "checkpoint.pth",
+            )
+            self.logger.log_improvement(epoch)
 
     def train(self, max_epochs: int):
         """Train the model.
@@ -206,9 +223,7 @@ class Trainer(object):
                         out,
                         y.reshape(
                             -1,
-                            self.config["dataset"]["J1_out"]
-                            * self.config["dataset"]["J2_out"]
-                            * self.config["dataset"]["J3_out"],
+                            self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                         ),
                     )
                     * x.shape[0]
@@ -217,27 +232,21 @@ class Trainer(object):
                     out,
                     y.reshape(
                         -1,
-                        self.config["dataset"]["J1_out"]
-                        * self.config["dataset"]["J2_out"]
-                        * self.config["dataset"]["J3_out"],
+                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                     ),
                 )
                 loss_l2_autoencoder_in = self.l2_rel_loss(
                     aec_in,
                     x.reshape(
                         -1,
-                        self.config["dataset"]["J1_in"]
-                        * self.config["dataset"]["J2_in"]
-                        * self.config["dataset"]["J3_in"],
+                        self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
                     ),
                 )
                 loss_l2_autoencoder_out = self.l2_rel_loss(
                     aec_out,
                     y.reshape(
                         -1,
-                        self.config["dataset"]["J1_out"]
-                        * self.config["dataset"]["J2_out"]
-                        * self.config["dataset"]["J3_out"],
+                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
                     ),
                 )
 
@@ -246,10 +255,10 @@ class Trainer(object):
                 test_l2_loss_autoencoder_in += loss_l2_autoencoder_in.item()
                 test_l2_loss_autoencoder_out += loss_l2_autoencoder_out.item()
 
-        test_mse_loss_operator /= self.config["dataset"]["ntrain"]
-        test_l2_loss_operator /= self.config["dataset"]["ntrain"]
-        test_l2_loss_autoencoder_in /= self.config["dataset"]["ntrain"]
-        test_l2_loss_autoencoder_out /= self.config["dataset"]["ntrain"]
+        test_mse_loss_operator /= self.config["ntrain"]
+        test_l2_loss_operator /= self.config["ntrain"]
+        test_l2_loss_autoencoder_in /= self.config["ntrain"]
+        test_l2_loss_autoencoder_out /= self.config["ntrain"]
 
         self.logger.debug(
             "test_mse_op:{:.8f}\ttest_l2_op:{:.6f}\ttest_l2_aec_in:{:.6f}\ttest_l2_aec_out:{:.6f}".format(

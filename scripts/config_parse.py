@@ -1,6 +1,7 @@
 """Script to parse config file."""
 import importlib.util
 from types import ModuleType
+from typing import List, Tuple
 
 
 def load_config_from_path(path: str) -> ModuleType:
@@ -21,7 +22,7 @@ def load_config_from_path(path: str) -> ModuleType:
     return module
 
 
-def parse_config(config_path: str) -> dict:
+def parse_config(config_path: str) -> Tuple[dict, List[str]]:
     """Parse config file.
 
     Args:
@@ -31,20 +32,23 @@ def parse_config(config_path: str) -> dict:
     Returns:
     -------
         dict: parsed config
+        List[str]: list of config files
 
     """
     config = load_config_from_path(config_path)
-
+    config_files = [config_path]
     # If the config file has a base config, parse it and update the current config
     if hasattr(config, "_base_"):
         base_config = {}
         for base_config_path in config._base_:
-            base_config.update(parse_config(base_config_path))
+            temp_base_config, temp_config_files = parse_config(base_config_path)
+            base_config.update(temp_base_config)
+            config_files.extend(temp_config_files)
 
         base_config.update(config.CONFIG)
-        return base_config
+        return base_config, config_files
     else:
-        return config.CONFIG
+        return config.CONFIG, config_files
 
 
 if __name__ == "__main__":

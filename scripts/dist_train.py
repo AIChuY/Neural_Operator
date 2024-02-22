@@ -1,5 +1,8 @@
 """Script for distributed training."""
+import argparse
 import os
+import shutil
+import sys
 import time
 
 import torch
@@ -7,6 +10,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from config_parse import parse_config
 
+sys.path.append("./")
 from src.dataset.dist_dataloader import prepare_dataloader
 from src.model.basis_o_net import BasisONet
 from src.train.dist_trainer import Trainer
@@ -44,15 +48,36 @@ def main(rank: int, world_size: int, config_file: str):
 
     """
     # Parse the config file
-    config = parse_config(config_file)
+    config, config_files = parse_config(config_file)
+    if rank == 0:
+        print(config)
+
+    # Make sure the log directory exists
+    os.makedirs(config["log_dir"], exist_ok=True)
+
+    # Write the config to a file
+    for file in config_files:
+        shutil.copy(file, config["log_dir"])
+
+    # Set up the process for distributed training
     set_up_process(rank, world_size)
 
     # Prepare the dataloaders
-    train_loader, valid_loader, test_loader = prepare_dataloader(config)
+    train_loader, valid_loader, test_loader, config = prepare_dataloader(config, world_size)
 
     # Create the model, optimizer, scheduler, and loss functions
-    model = BasisONet(config)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=config["train"]["learning_rate"])
+    model = BasisONet(
+        n_base_in=config["nbasis_in"],
+        base_in_hidden=config["base_in_hidden"],
+        middle_hidden=config["middle_hidden"],
+        n_base_out=config["nbasis_out"],
+        base_out_hidden=config["base_out_hidden"],
+        grid_in=config["grid_in"],
+        grid_out=config["grid_out"],
+        device=config["device"],
+        activation=config["activation"],
+    )
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=config["learning_rate"])
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=250, gamma=0.9)
 
     # Create the trainer
@@ -67,19 +92,21 @@ def main(rank: int, world_size: int, config_file: str):
         config,
     )
 
-    trainer.train(config["train"]["epochs"])
-
-    if rank == 0:
-        trainer.test()
+    # Train the model
+    trainer.train(config["epochs"])
 
     cleanup()
 
 
 if __name__ == "__main__":
-    start_time = time.time()
+    parser = argparse.ArgumentParser(description="Distributed training script")
+    parser.add_argument("config", type=str, help="Path to the config file")
+    args = parser.parse_args()
 
+    start_time = time.time()
+    config_file = args.config
     world_size = torch.cuda.device_count()
-    mp.spawn(main, args=(world_size,), nprocs=world_size, join=True)
+    mp.spawn(main, args=(world_size, config_file), nprocs=world_size, join=True)
 
     finish_time = time.time()
     # print time in hour:min:sec

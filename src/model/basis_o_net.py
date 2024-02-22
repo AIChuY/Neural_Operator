@@ -40,14 +40,17 @@ class BasisONet(Basic_Model):
         self.n_base_in = n_base_in
         self.n_base_out = n_base_out
         self.device = device
-        self.t_in = torch.tensor(grid_in).to(device).float().reshape(-1, 2)
-        self.t_out = torch.tensor(grid_out).to(device).float().reshape(-1, 2)
-        self.h_in = [grid_in[0, 1, 0] - grid_in[0, 0, 0], grid_in[1, 0, 1] - grid_in[0, 0, 1]]
-        self.h_out = [grid_out[0, 1, 0] - grid_out[0, 0, 0], grid_out[1, 0, 1] - grid_out[0, 0, 1]]
-        assert self.h_in[0] > 0 and self.h_in[1] > 0 and self.h_out[0] > 0 and self.h_out[1] > 0
-        self.BL_in = NeuralBasis(2, hidden=base_in_hidden, n_base=n_base_in, activation=activation)
-        self.Middle = FNN(hidden_layer=middle_hidden, dim_in=n_base_in, dim_out=n_base_out, activation=activation)
-        self.BL_out = NeuralBasis(2, hidden=base_out_hidden, n_base=n_base_out, activation=activation)
+        self.t_in = torch.tensor(grid_in).to(device).float().reshape(-1, 3)
+        self.t_out = torch.tensor(grid_out).to(device).float().reshape(-1, 3)
+        self.h_in = torch.tensor(grid_in[1:] - grid_in[:-1]).to(device).float()
+        self.BL_in = NeuralBasis(dim_in=3, hidden=base_in_hidden, n_base=n_base_in, activation=activation)
+        self.Middle = FNN(
+            hidden_layer=middle_hidden,
+            dim_in=n_base_in,
+            dim_out=n_base_out,
+            activation=activation,
+        )
+        self.BL_out = NeuralBasis(dim_in=3, hidden=base_out_hidden, n_base=n_base_out, activation=activation)
 
     def forward(self, x, y):
         """Define the forward pass.
@@ -62,76 +65,20 @@ class BasisONet(Basic_Model):
             torch.Tensor: The output tensor.
 
         """
-        B_in, J1_in, J2_in = x.size()
-        B_out, J1_out, J2_out = y.size()
+        B_in, J1_in, J2_in, J3_in = x.size()
+        x = x.reshape(B_in, -1)
+        B_out, J1_out, J2_out, J3_out = y.size()
+        y = y.reshape(B_out, -1)
         T_in, T_out = self.t_in, self.t_out
-        self.bases_in = self.BL_in(T_in)  # (J_in, n_base_in)
-        self.bases_out = self.BL_out(T_out)  # (J1_out*J2_out, n_base_out)
-        self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base_in, J_in)
-        self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base_out, J1_out*J2_out)
-        score_in = _parralleled_inner_product_2d(
-            x.unsqueeze(1).repeat((1, self.n_base_in, 1, 1)),
-            self.bases_in.unsqueeze(0).repeat((B_in, 1, 1)).reshape(B_in, self.n_base_in, J1_in, J2_in),
-            self.h_in,
-        )  # (B_in, n_base_in)
-        score_out = self.Middle(score_in)
-        out = torch.mm(score_out, self.bases_out)
-        autoencoder_in = torch.mm(score_in, self.bases_in)
-        score_out_temp = _parralleled_inner_product_2d(
-            y.unsqueeze(1).repeat((1, self.n_base_out, 1, 1)),
-            self.bases_out.unsqueeze(0).repeat((B_out, 1, 1)).reshape(B_out, self.n_base_out, J1_out, J2_out),
-            self.h_out,
-        )  # (B_out, n_base_out)
-        autoencoder_out = torch.mm(score_out_temp, self.bases_out)
+        self.bases_in = self.BL_in(T_in)  # (J1_in*J2_in*J3_in, n_base_in)
+        self.bases_out = self.BL_out(T_out)  # (J1_out*J2_out*J3_out, n_base_out)
+        score_in = torch.einsum("bs,sn->bn", x, self.bases_in) / self.bases_in.shape[0]  # (B, n_base_in)
+        score_out = self.Middle(score_in)  # (B, n_basis_out)
+        out = torch.einsum("bn,sn->bs", score_out, self.bases_out)  # (B, J1_out*J2_out*J3_out)
+        autoencoder_in = torch.einsum("bn,sn->bs", score_in, self.bases_in)
+        score_out_temp = torch.einsum("bs,sn->bn", y, self.bases_out) / self.bases_out.shape[0]
+        autoencoder_out = torch.einsum("bn,sn->bs", score_out_temp, self.bases_out)
         return out, autoencoder_in, autoencoder_out
-
-    def aec_in_forward(self, x):
-        """Define the forward pass for the input autoencoder.
-
-        Args:
-        ----
-            x (torch.Tensor): The input tensor.
-
-        Returns:
-        -------
-            torch.Tensor: The output tensor.
-
-        """
-        B, J1, J2 = x.size()
-        # evaluate the current basis nodes at time grid
-        self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
-        self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base, J)
-        score_in = _parralleled_inner_product_2d(
-            x.unsqueeze(1).repeat((1, self.n_base_in, 1, 1)),
-            self.bases_in.unsqueeze(0).repeat((B, 1, 1)).reshape(B, self.n_base_in, J1, J2),
-            self.h_in,
-        )
-        autoencoder = torch.mm(score_in, self.bases_in)  # (B, n_grid)
-        return autoencoder
-
-    def aec_out_forward(self, y):
-        """Define the forward pass for the output autoencoder.
-
-        Args:
-        ----
-            y (torch.Tensor): The input tensor.
-
-        Returns:
-        -------
-            torch.Tensor: The output tensor.
-
-        """
-        B, J1, J2 = y.size()
-        # evaluate the current basis nodes at time grid
-        self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
-        self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base, J1*J2)
-        score_out = _parralleled_inner_product_2d(
-            y.unsqueeze(1).repeat((1, self.n_base_out, 1, 1)),
-            self.bases_out.unsqueeze(0).repeat((B, 1, 1)).reshape(B, self.n_base_out, J1, J2),
-            self.h_out,
-        )
-        autoencoder = torch.mm(score_out, self.bases_out)  # (B, n_grid)
-        return autoencoder
 
     def check_orthogonality_in(self, J1, J2, path=None):
         """Check the orthogonality of the input basis.
@@ -147,16 +94,15 @@ class BasisONet(Basic_Model):
             np.ndarray: The orthogonality matrix.
 
         """
-        self.bases_in = self.BL_in(self.t_in)  # (J, n_base)
-        self.bases_in = self.bases_in.transpose(-1, -2)  # (n_base, J1*J2)
-        orth_matrix = torch.ones((self.bases_in.shape[0], self.bases_in.shape[0])).to(self.device)
+        T = self.t_in
+        # evaluate the current basis nodes at time grid
+        self.bases_in = self.BL_in(T)  # (J, n_base)
+        orth_matrix = torch.ones((self.bases_in.shape[1], self.bases_in.shape[1])).to(self.device)
         for i in range(orth_matrix.shape[0]):
             for j in range(orth_matrix.shape[1]):
-                orth_matrix[i, j] = _inner_product_2d(
-                    self.bases_in[i, :].reshape(J1, J2).unsqueeze(0),
-                    self.bases_in[j, :].reshape(J1, J2).unsqueeze(0),
-                    self.h_in,
-                ).squeeze()
+                orth_matrix[i, j] = (
+                    torch.einsum("s,s->", self.bases_in[:, i], self.bases_in[:, j]) / self.bases_in.shape[0]
+                )
         orth_matrix = orth_matrix.detach().cpu().numpy()
         if path:
             np.savetxt(path, orth_matrix)
@@ -177,16 +123,15 @@ class BasisONet(Basic_Model):
             np.ndarray: The orthogonality matrix.
 
         """
-        self.bases_out = self.BL_out(self.t_out)  # (J, n_base)
-        self.bases_out = self.bases_out.transpose(-1, -2)  # (n_base, J1*J2)
-        orth_matrix = torch.ones((self.bases_out.shape[0], self.bases_out.shape[0])).to(self.device)
+        T = self.t_out
+        # evaluate the current basis nodes at time grid
+        self.bases_out = self.BL_out(T)  # (J, n_base)
+        orth_matrix = torch.ones((self.bases_out.shape[1], self.bases_out.shape[1])).to(self.device)
         for i in range(orth_matrix.shape[0]):
             for j in range(orth_matrix.shape[1]):
-                orth_matrix[i, j] = _inner_product_2d(
-                    self.bases_out[i, :].reshape(J1, J2).unsqueeze(0),
-                    self.bases_out[j, :].reshape(J1, J2).unsqueeze(0),
-                    self.h_out,
-                ).squeeze()
+                orth_matrix[i, j] = (
+                    torch.einsum("s,s->", self.bases_out[:, i], self.bases_out[:, j]) / self.bases_out.shape[0]
+                )
         orth_matrix = orth_matrix.detach().cpu().numpy()
         if path:
             np.savetxt(path, orth_matrix)
