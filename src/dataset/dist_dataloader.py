@@ -25,60 +25,32 @@ def prepare_dataloader(config: dict, world_size: int) -> tuple:
     """
     x = np.load(os.path.join(config["file_dir"], "in_f.npy"))
     y = np.load(os.path.join(config["file_dir"], "out_f.npy"))
-    grid = np.load(os.path.join(config["file_dir"], "grid.npy"))
-    grid_in = grid.copy()
-    grid_out = grid.copy()
+    if os.path.exists(os.path.join(config["file_dir"], "grid.npy")):
+        grid = np.load(os.path.join(config["file_dir"], "grid.npy"))
+        grid_in = grid.copy()
+        grid_out = grid.copy()
+    else:
+        grid_in = np.load(os.path.join(config["file_dir"], "grid_in.npy"))
+        grid_out = np.load(os.path.join(config["file_dir"], "grid_out.npy"))
 
-    # data split
-    x_train = x[
-        : config["ntrain"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    x_valid = x[
-        config["ntrain"] : config["ntrain"] + config["nvalid"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    x_test = x[
-        config["ntrain"] + config["nvalid"] : config["ntrain"] + config["nvalid"] + config["ntest"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    y_train = y[
-        : config["ntrain"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    y_valid = y[
-        config["ntrain"] : config["ntrain"] + config["nvalid"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    y_test = y[
-        config["ntrain"] + config["nvalid"] : config["ntrain"] + config["nvalid"] + config["ntest"],
-        :: config["sub"],
-        :: config["sub"],
-        :: config["sub"],
-    ]
-    grid_in = grid_in[:: config["sub"], :: config["sub"], :: config["sub"], :]
-    grid_out = grid_out[:: config["sub"], :: config["sub"], :: config["sub"], :]
+    # data split and subsampling
+    subsampling_x = (slice(None),) + tuple(slice(None, None, config["sub"]) for _ in range(1, x.ndim))
+    subsampling_y = (slice(None),) + tuple(slice(None, None, config["sub"]) for _ in range(1, y.ndim))
+    subsampling_grid_in = tuple(slice(None, None, config["sub"]) for _ in range(1, grid_in.ndim)) + (slice(None),)
+    subsampling_grid_out = tuple(slice(None, None, config["sub"]) for _ in range(1, grid_out.ndim)) + (slice(None),)
+    x_train = x[: config["ntrain"]][subsampling_x]
+    x_valid = x[config["ntrain"] : config["ntrain"] + config["nvalid"]][subsampling_x]
+    x_test = x[-config["ntest"] :][subsampling_x]
+    y_train = y[: config["ntrain"]][subsampling_y]
+    y_valid = y[config["ntrain"] : config["ntrain"] + config["nvalid"]][subsampling_y]
+    y_test = y[-config["ntest"] :][subsampling_y]
+    grid_in = grid_in[subsampling_grid_in]
+    grid_out = grid_out[subsampling_grid_out]
     config["grid_in"] = grid_in
     config["grid_out"] = grid_out
 
-    J1_in, J2_in, J3_in = x_train.shape[1], x_train.shape[2], x_train.shape[3]
-    J1_out, J2_out, J3_out = y_train.shape[1], y_train.shape[2], y_train.shape[3]
-    config["J1_in"] = J1_in
-    config["J2_in"] = J2_in
-    config["J3_in"] = J3_in
-    config["J1_out"] = J1_out
-    config["J2_out"] = J2_out
-    config["J3_out"] = J3_out
+    config["input_size"] = np.prod(x_train.shape[1:])
+    config["output_size"] = np.prod(y_train.shape[1:])
 
     x_train = torch.from_numpy(x_train).float()
     x_valid = torch.from_numpy(x_valid).float()

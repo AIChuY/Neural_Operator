@@ -9,10 +9,12 @@ timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
 CONFIG = {
     "log_dir": f"./log/navier_stokes/{timestamp}/",
-    "epochs": 10,
-    "batch_size": 32,
+    "epochs": 10000,
+    "batch_size": 100,
+    "learning_rate": 1e-3,
     "middle_hidden": [512, 512, 512, 512],
     "nbasis_in": 100,
     "nbasis_out": 100,
     "activation": F.gelu,
+    "model_name": "NavierStokes",
 }

@@ -47,6 +47,8 @@ class Trainer(object):
         self.config = config
         self.valid_loss = float("inf")
         self.save_flag = False
+        self.no_improvement = 0
+        self.early_stop_flag = False
         self.logger = TrainingLogger(config["log_dir"] + "train.log") if rank == 0 else None
 
     def _train_epoch(self, epoch: int):
@@ -64,21 +66,21 @@ class Trainer(object):
                 out,
                 y.reshape(
                     -1,
-                    self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                    self.config["output_size"],
                 ),
             )
             loss_l2_autoencoder_in = self.loss_function(
                 aec_in,
                 x.reshape(
                     -1,
-                    self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
+                    self.config["input_size"],
                 ),
             )
             loss_l2_autoencoder_out = self.loss_function(
                 aec_out,
                 y.reshape(
                     -1,
-                    self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                    self.config["output_size"],
                 ),
             )
             loss_total = (
@@ -131,21 +133,21 @@ class Trainer(object):
                     out,
                     y.reshape(
                         -1,
-                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                        self.config["output_size"],
                     ),
                 )
                 loss_l2_autoencoder_in = self.loss_function(
                     aec_in,
                     x.reshape(
                         -1,
-                        self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
+                        self.config["input_size"],
                     ),
                 )
                 loss_l2_autoencoder_out = self.loss_function(
                     aec_out,
                     y.reshape(
                         -1,
-                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                        self.config["output_size"],
                     ),
                 )
                 loss_total = (
@@ -173,8 +175,14 @@ class Trainer(object):
                 [valid_loss_total, valid_l2_loss_operator, valid_l2_loss_autoencoder_in, valid_l2_loss_autoencoder_out],
             )
             if valid_l2_loss_operator < self.valid_loss:
+                self.no_improvement = 0
                 self.valid_loss = valid_l2_loss_operator
                 self.save_flag = True
+            else:
+                self.no_improvement += 1
+                if self.no_improvement > self.config["early_stop"]:
+                    self.logger.log_early_stop(epoch)
+                    self.early_stop_flag = True
 
     def _save_checkpoint(self, epoch: int):
         if self.save_flag and self.logger is not None:
@@ -203,6 +211,8 @@ class Trainer(object):
             self._train_epoch(epoch)
             self._validate_epoch(epoch)
             self._save_checkpoint(epoch)
+            if self.early_stop_flag:
+                break
 
     def test(self):
         """Test the model."""
@@ -223,7 +233,7 @@ class Trainer(object):
                         out,
                         y.reshape(
                             -1,
-                            self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                            self.config["output_size"],
                         ),
                     )
                     * x.shape[0]
@@ -232,21 +242,21 @@ class Trainer(object):
                     out,
                     y.reshape(
                         -1,
-                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                        self.config["output_size"],
                     ),
                 )
                 loss_l2_autoencoder_in = self.l2_rel_loss(
                     aec_in,
                     x.reshape(
                         -1,
-                        self.config["J1_in"] * self.config["J2_in"] * self.config["J3_in"],
+                        self.config["input_size"],
                     ),
                 )
                 loss_l2_autoencoder_out = self.l2_rel_loss(
                     aec_out,
                     y.reshape(
                         -1,
-                        self.config["J1_out"] * self.config["J2_out"] * self.config["J3_out"],
+                        self.config["output_size"],
                     ),
                 )
 

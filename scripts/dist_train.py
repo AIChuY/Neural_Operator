@@ -66,17 +66,7 @@ def main(rank: int, world_size: int, config_file: str):
     train_loader, valid_loader, test_loader, config = prepare_dataloader(config, world_size)
 
     # Create the model, optimizer, scheduler, and loss functions
-    model = BasisONet(
-        n_base_in=config["nbasis_in"],
-        base_in_hidden=config["base_in_hidden"],
-        middle_hidden=config["middle_hidden"],
-        n_base_out=config["nbasis_out"],
-        base_out_hidden=config["base_out_hidden"],
-        grid_in=config["grid_in"],
-        grid_out=config["grid_out"],
-        device=config["device"],
-        activation=config["activation"],
-    )
+    model = BasisONet(config).model
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config["learning_rate"])
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=250, gamma=0.9)
 

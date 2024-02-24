@@ -1,6 +1,6 @@
-"""Data configuration for Darcy flow problem."""
+"""Data configuration for kDv burgers problem."""
 CONFIG = {
-    "file_dir": "./datafiles/darcy_flow/",
+    "file_dir": "./datafiles/kdv_burgers/",
     "sub": 1,
     "ntrain": 1000,
     "nvalid": 500,

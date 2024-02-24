@@ -97,3 +97,13 @@ class TrainingLogger:
 
         """
         self.logger.debug(f"Model improved at epoch {epoch}")
+
+    def log_early_stop(self, epoch: int) -> None:
+        """Log that the model has stopped early.
+
+        Args:
+        ----
+            epoch (int): The current epoch.
+
+        """
+        self.logger.debug(f"Model stopped early at epoch {epoch}")

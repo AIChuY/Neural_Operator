@@ -1,6 +1,6 @@
-"""Data configuration for Darcy flow problem."""
+"""Data configuration for Poisson problem."""
 CONFIG = {
-    "file_dir": "./datafiles/darcy_flow/",
+    "file_dir": "./datafiles/poisson/",
     "sub": 1,
     "ntrain": 1000,
     "nvalid": 500,
