@@ -1,0 +1,3 @@
+# ignore checkpoint file
+checkpoint/
+*.pt
